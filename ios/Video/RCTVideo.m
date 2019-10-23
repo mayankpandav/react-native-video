@@ -54,7 +54,6 @@ static int const RCTVideoUnset = -1;
   float _rate;
   float _maxBitRate;
 
-  BOOL _automaticallyWaitsToMinimizeStalling;
   BOOL _muted;
   BOOL _paused;
   BOOL _repeat;
@@ -88,7 +87,7 @@ static int const RCTVideoUnset = -1;
 {
   if ((self = [super init])) {
     _eventDispatcher = eventDispatcher;
-	  _automaticallyWaitsToMinimizeStalling = YES;
+    
     _playbackRateObserverRegistered = NO;
     _isExternalPlaybackActiveObserverRegistered = NO;
     _playbackStalled = NO;
@@ -224,7 +223,6 @@ static int const RCTVideoUnset = -1;
   if (_playInBackground) {
     // Needed to play sound in background. See https://developer.apple.com/library/ios/qa/qa1668/_index.html
     [_playerLayer setPlayer:nil];
-    [_playerViewController setPlayer:nil];
   }
 }
 
@@ -233,7 +231,6 @@ static int const RCTVideoUnset = -1;
   [self applyModifiers];
   if (_playInBackground) {
     [_playerLayer setPlayer:_player];
-    [_playerViewController setPlayer:_player];
   }
 }
 
@@ -357,6 +354,8 @@ static int const RCTVideoUnset = -1;
       [self setMaxBitRate:_maxBitRate];
       
       [_player pause];
+      [_playerViewController.view removeFromSuperview];
+      _playerViewController = nil;
         
       if (_playbackRateObserverRegistered) {
         [_player removeObserver:self forKeyPath:playbackRate context:nil];
@@ -377,9 +376,6 @@ static int const RCTVideoUnset = -1;
       _isExternalPlaybackActiveObserverRegistered = YES;
         
       [self addPlayerTimeObserver];
-      if (@available(iOS 10.0, *)) {
-        [self setAutomaticallyWaitsToMinimizeStalling:_automaticallyWaitsToMinimizeStalling];
-      }
 
       //Perform on next run loop, otherwise onVideoLoadStart is nil
       if (self.onVideoLoadStart) {
@@ -582,11 +578,27 @@ static int const RCTVideoUnset = -1;
 
 - (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
 {
-
-  if([keyPath isEqualToString:readyForDisplayKeyPath] && [change objectForKey:NSKeyValueChangeNewKey] && self.onReadyForDisplay) {
-    self.onReadyForDisplay(@{@"target": self.reactTag});
-    return;
+  // when controls==true, this is a hack to reset the rootview when rotation happens in fullscreen
+  if (object == _playerViewController.contentOverlayView) {
+    if ([keyPath isEqualToString:@"frame"]) {
+      
+      CGRect oldRect = [change[NSKeyValueChangeOldKey] CGRectValue];
+      CGRect newRect = [change[NSKeyValueChangeNewKey] CGRectValue];
+      
+      if (!CGRectEqualToRect(oldRect, newRect)) {
+        if (CGRectEqualToRect(newRect, [UIScreen mainScreen].bounds)) {
+          NSLog(@"in fullscreen");
+        } else NSLog(@"not fullscreen");
+        
+        [self.reactViewController.view setFrame:[UIScreen mainScreen].bounds];
+        [self.reactViewController.view setNeedsLayout];
+      }
+      
+      return;
+    } else
+      return [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
   }
+  
   if (object == _playerItem) {
     // When timeMetadata is read the event onTimedMetadata is triggered
     if ([keyPath isEqualToString:timedMetadata]) {
@@ -678,6 +690,12 @@ static int const RCTVideoUnset = -1;
       _playerBufferEmpty = NO;
       self.onVideoBuffer(@{@"isBuffering": @(NO), @"target": self.reactTag});
     }
+  } else if (object == _playerLayer) {
+    if([keyPath isEqualToString:readyForDisplayKeyPath] && [change objectForKey:NSKeyValueChangeNewKey]) {
+      if([change objectForKey:NSKeyValueChangeNewKey] && self.onReadyForDisplay) {
+        self.onReadyForDisplay(@{@"target": self.reactTag});
+      }
+    }
   } else if (object == _player) {
     if([keyPath isEqualToString:playbackRate]) {
       if(self.onPlaybackRateChange) {
@@ -698,24 +716,8 @@ static int const RCTVideoUnset = -1;
                                           @"target": self.reactTag});
         }
     }
-  } else if (object == _playerViewController.contentOverlayView) {
-      // when controls==true, this is a hack to reset the rootview when rotation happens in fullscreen
-      if ([keyPath isEqualToString:@"frame"]) {
-
-        CGRect oldRect = [change[NSKeyValueChangeOldKey] CGRectValue];
-        CGRect newRect = [change[NSKeyValueChangeNewKey] CGRectValue];
-
-        if (!CGRectEqualToRect(oldRect, newRect)) {
-          if (CGRectEqualToRect(newRect, [UIScreen mainScreen].bounds)) {
-            NSLog(@"in fullscreen");
-          } else NSLog(@"not fullscreen");
-
-          [self.reactViewController.view setFrame:[UIScreen mainScreen].bounds];
-          [self.reactViewController.view setNeedsLayout];
-        }
-
-        return;
-      }
+  } else {
+    [super observeValueForKeyPath:keyPath ofObject:object change:change context:context];
   }
 }
 
@@ -868,13 +870,7 @@ static int const RCTVideoUnset = -1;
     } else if([_ignoreSilentSwitch isEqualToString:@"obey"]) {
       [[AVAudioSession sharedInstance] setCategory:AVAudioSessionCategoryAmbient error:nil];
     }
-    
-    if (@available(iOS 10.0, *) && !_automaticallyWaitsToMinimizeStalling) {
-      [_player playImmediatelyAtRate:_rate];
-    } else {
-      [_player play];
-      [_player setRate:_rate];
-    }
+    [_player play];
     [_player setRate:_rate];
   }
   
@@ -961,19 +957,11 @@ static int const RCTVideoUnset = -1;
   _playerItem.preferredPeakBitRate = maxBitRate;
 }
 
-- (void)setAutomaticallyWaitsToMinimizeStalling:(BOOL)waits
-{
-	_automaticallyWaitsToMinimizeStalling = waits;
-	_player.automaticallyWaitsToMinimizeStalling = waits;
-}
-
 
 - (void)applyModifiers
 {
   if (_muted) {
-    if (!_controls) {
-      [_player setVolume:0];
-    }
+    [_player setVolume:0];
     [_player setMuted:YES];
   } else {
     [_player setVolume:_volume];
@@ -1295,9 +1283,7 @@ static int const RCTVideoUnset = -1;
 {
   if( _player )
   {
-    if (!_playerViewController) {
-      _playerViewController = [self createPlayerViewController:_player withPlayerItem:_playerItem];
-    }
+    _playerViewController = [self createPlayerViewController:_player withPlayerItem:_playerItem];
     // to prevent video from being animated when resizeMode is 'cover'
     // resize mode must be set before subview is added
     [self setResizeMode:_resizeMode];
@@ -1307,8 +1293,6 @@ static int const RCTVideoUnset = -1;
       [viewController addChildViewController:_playerViewController];
       [self addSubview:_playerViewController.view];
     }
-      
-    [_playerViewController addObserver:self forKeyPath:readyForDisplayKeyPath options:NSKeyValueObservingOptionNew context:nil];
     
     [_playerViewController.contentOverlayView addObserver:self forKeyPath:@"frame" options:NSKeyValueObservingOptionNew | NSKeyValueObservingOptionOld context:NULL];
   }
@@ -1504,10 +1488,7 @@ static int const RCTVideoUnset = -1;
   [self removePlayerLayer];
   
   [_playerViewController.contentOverlayView removeObserver:self forKeyPath:@"frame"];
-  [_playerViewController removeObserver:self forKeyPath:readyForDisplayKeyPath];
   [_playerViewController.view removeFromSuperview];
-  _playerViewController.rctDelegate = nil;
-  _playerViewController.player = nil;
   _playerViewController = nil;
   
   [self removePlayerTimeObserver];

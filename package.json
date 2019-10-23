@@ -1,32 +1,9 @@
 {
     "name": "react-native-video",
-    "version": "5.1.0-alpha1",
+    "version": "1.0.0",
     "description": "A <Video /> element for react-native",
     "main": "Video.js",
-    "license": "MIT",
-    "author": "Brent Vatne <brentvatne@gmail.com> (https://github.com/brentvatne)",
-    "contributors": [
-        {
-            "name": "Isaiah Grey",
-            "email": "isaiahgrey@gmail.com"
-        },
-        {
-            "name": "Johannes Lumpe",
-            "email": "johannes@lum.pe"
-        },
-        {
-            "name": "Baris Sencan",
-            "email": "baris.sncn@gmail.com"
-        },
-        {
-            "name": "Hampton Maxwell",
-            "email": "me@hamptonmaxwell.com"
-        }
-    ],
-    "repository": {
-        "type": "git",
-        "url": "git@github.com:react-native-community/react-native-video.git"
-    },
+   
     "devDependencies": {
         "babel-eslint": "5.0.0-beta8",
         "eslint": "1.10.3",
@@ -44,6 +21,11 @@
     },
     "scripts": {
         "test": "node_modules/.bin/eslint *.js"
+    },
+    "rnpm": {
+        "android": {
+            "sourceDir": "./android-exoplayer"
+        }
     },
     "files": [
         "android-exoplayer",
